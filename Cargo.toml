@@ -1,0 +1,28 @@
+[package]
+name = "flash-loan-arbitrage-scanner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+ethers = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dotenv = "0.15"
+anyhow = "1.0"
+reqwest = { version = "0.12", features = ["json"] }
+hex = "0.4"
+num-bigint = "0.4"
+num-traits = "0.2"
+log = "0.4"
+env_logger = "0.11"
+dashmap = "6.0"
+futures = "0.3"
+async-trait = "0.1"
+thiserror = "1.0"
+chrono = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
