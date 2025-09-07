@@ -1,0 +1,33 @@
+{
+  "name": "ethereum-arbitrage-scanner",
+  "version": "2.0.0",
+  "description": "Real-time arbitrage scanner for all Ethereum DEX pairs with flash loan calculations",
+  "main": "src/scanner.js",
+  "scripts": {
+    "start": "node src/scanner.js",
+    "monitor": "node src/monitor.js",
+    "test": "node src/test-connection.js"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.3",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.9.0",
+    "node-fetch": "^2.7.0"
+  },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mae-kelly/ayo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mae-kelly/ayo/issues"
+  },
+  "homepage": "https://github.com/mae-kelly/ayo#readme"
+}
