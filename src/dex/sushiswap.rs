@@ -1,6 +1,5 @@
 use anyhow::Result;
 use ethers::{
-    abi::Abi,
     contract::abigen,
     types::{Address, U256},
 };
@@ -11,7 +10,7 @@ use crate::models::{DexPool, DexType, TokenPair};
 use crate::providers::MultiProvider;
 
 abigen!(
-    UniswapV2Factory,
+    SushiFactory,
     r#"[
         function getPair(address tokenA, address tokenB) external view returns (address pair)
         function allPairs(uint256) external view returns (address)
@@ -20,7 +19,7 @@ abigen!(
 );
 
 abigen!(
-    UniswapV2Pair,
+    SushiPair,
     r#"[
         function token0() external view returns (address)
         function token1() external view returns (address)
@@ -28,14 +27,15 @@ abigen!(
     ]"#
 );
 
-pub struct UniswapV2Handler {
+pub struct SushiswapHandler {
     provider: Arc<MultiProvider>,
     factory_address: Address,
 }
 
-impl UniswapV2Handler {
+impl SushiswapHandler {
     pub async fn new(provider: Arc<MultiProvider>) -> Result<Self> {
-        let factory_address = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"
+        // SushiSwap factory on mainnet
+        let factory_address = "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac"
             .parse::<Address>()?;
 
         Ok(Self {
@@ -46,11 +46,11 @@ impl UniswapV2Handler {
 
     pub async fn get_pools_for_tokens(&self, tokens: &[Address]) -> Result<Vec<DexPool>> {
         let provider = self.provider.get_provider().await;
-        let factory = UniswapV2Factory::new(self.factory_address, provider.clone());
+        let factory = SushiFactory::new(self.factory_address, provider.clone());
         
         let mut pools = Vec::new();
         
-        info!("Checking UniswapV2 pairs for {} tokens", tokens.len());
+        info!("Checking SushiSwap pairs for {} tokens", tokens.len());
         
         // Check all token pairs
         for i in 0..tokens.len() {
@@ -73,57 +73,46 @@ impl UniswapV2Handler {
             }
         }
         
-        info!("Found {} UniswapV2 pools with liquidity", pools.len());
+        info!("Found {} SushiSwap pools with liquidity", pools.len());
         Ok(pools)
     }
 
     pub async fn get_all_pools(&self) -> Result<Vec<DexPool>> {
         let provider = self.provider.get_provider().await;
-        let factory = UniswapV2Factory::new(self.factory_address, provider.clone());
+        let factory = SushiFactory::new(self.factory_address, provider.clone());
 
         let total_pairs = factory.all_pairs_length().call().await?;
-        info!("Total UniswapV2 pairs: {}", total_pairs);
+        info!("Total SushiSwap pairs: {}", total_pairs);
         
         let mut pools = Vec::new();
         
-        // Strategy: Get pools from different ranges for diversity
-        // 1. Recent pools (high activity)
-        // 2. Mid-range pools (established)
-        // 3. Early pools (high liquidity classics)
+        // Get recent pairs (more likely to be active)
+        let start = if total_pairs > U256::from(1000) {
+            total_pairs - U256::from(1000)
+        } else {
+            U256::zero()
+        };
         
-        let ranges = vec![
-            (total_pairs.saturating_sub(U256::from(500)), total_pairs), // Recent
-            (U256::from(50000), U256::from(50500)), // Mid-range
-            (U256::from(0), U256::from(500)), // Early classics
-        ];
-        
-        for (start, end) in ranges {
-            let start = start.min(total_pairs);
-            let end = end.min(total_pairs);
-            
-            for i in start.as_u64()..end.as_u64() {
-                if let Ok(pair_address) = factory.all_pairs(U256::from(i)).call().await {
-                    if let Ok(pool) = self.get_pool_info_fast(pair_address).await {
-                        if pool.reserve0 > U256::from(10u128.pow(17)) && 
-                           pool.reserve1 > U256::from(10u128.pow(17)) {
-                            pools.push(pool);
-                        }
+        for i in start.as_u64()..total_pairs.as_u64() {
+            if let Ok(pair_address) = factory.all_pairs(U256::from(i)).call().await {
+                if let Ok(pool) = self.get_pool_info(pair_address).await {
+                    if pool.reserve0 > U256::zero() && pool.reserve1 > U256::zero() {
+                        pools.push(pool);
                     }
                 }
-                
-                if pools.len() >= 1000 {
-                    break;
-                }
+            }
+            
+            if pools.len() >= 500 {
+                break;
             }
         }
         
-        info!("Found {} UniswapV2 pools with good liquidity", pools.len());
         Ok(pools)
     }
 
-    async fn get_pool_info_fast(&self, pair_address: Address) -> Result<DexPool> {
+    async fn get_pool_info(&self, pair_address: Address) -> Result<DexPool> {
         let provider = self.provider.get_provider().await;
-        let pair = UniswapV2Pair::new(pair_address, provider.clone());
+        let pair = SushiPair::new(pair_address, provider.clone());
 
         let token0 = pair.token_0().call().await?;
         let token1 = pair.token_1().call().await?;
@@ -133,36 +122,31 @@ impl UniswapV2Handler {
         let token_info = self.get_token_info(token0, token1).await?;
 
         Ok(DexPool {
-            dex: DexType::UniswapV2,
+            dex: DexType::Sushiswap,
             address: pair_address,
             token_pair: token_info,
             reserve0: U256::from(reserves.0),
             reserve1: U256::from(reserves.1),
-            fee: 30, // 0.3% fee for UniswapV2
+            fee: 30, // 0.3% fee for SushiSwap
         })
-    }
-
-    async fn get_pool_info(&self, pair_address: Address) -> Result<DexPool> {
-        self.get_pool_info_fast(pair_address).await
     }
 
     async fn get_token_info(&self, token0: Address, token1: Address) -> Result<TokenPair> {
         let provider = self.provider.get_provider().await;
 
-        let erc20_abi: Abi = serde_json::from_str(
+        let erc20_abi: ethers::abi::Abi = serde_json::from_str(
             r#"[
                 {"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"type":"function"},
                 {"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"}
             ]"#
         )?;
 
-        // Default values
         let mut symbol0 = format!("T0-{:?}", &token0.to_string()[2..6]);
         let mut symbol1 = format!("T1-{:?}", &token1.to_string()[2..6]);
         let mut decimals0 = 18u8;
         let mut decimals1 = 18u8;
 
-        // Try to get actual symbols
+        // Try to get actual symbols (but don't fail if we can't)
         let contract0 = ethers::contract::Contract::new(token0, erc20_abi.clone(), provider.clone());
         if let Ok(s) = contract0.method::<_, String>("symbol", ())?.call().await {
             symbol0 = s;
