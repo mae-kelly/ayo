@@ -1,33 +1,78 @@
 {
-  "name": "ethereum-arbitrage-scanner",
-  "version": "2.0.0",
-  "description": "Real-time arbitrage scanner for all Ethereum DEX pairs with flash loan calculations",
-  "main": "src/scanner.js",
+  "name": "l2-flash-arbitrage-bot",
+  "version": "1.0.0",
+  "description": "High-performance L2 flash loan arbitrage bot optimized for zkSync Era and Base",
+  "main": "dist/bot/src/index.js",
   "scripts": {
-    "start": "node src/scanner.js",
-    "monitor": "node src/monitor.js",
-    "test": "node src/test-connection.js"
+    "start": "node dist/bot/src/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only bot/src/index.ts",
+    "build": "tsc",
+    "test": "hardhat test",
+    "test:fork": "hardhat test --network hardhat",
+    "deploy": "hardhat run scripts/deploy.ts --network",
+    "deploy:zksync": "hardhat run scripts/deploy.ts --network zksync",
+    "deploy:base": "hardhat run scripts/deploy.ts --network base",
+    "compile": "hardhat compile",
+    "simulate": "ts-node scripts/simulate.ts",
+    "monitor": "ts-node scripts/monitor.ts",
+    "verify": "hardhat verify --network",
+    "clean": "hardhat clean && rm -rf dist",
+    "lint": "eslint . --ext .ts,.js",
+    "format": "prettier --write \"**/*.{ts,js,json,sol}\""
   },
   "dependencies": {
-    "chalk": "^4.1.2",
-    "cli-table3": "^0.6.3",
+    "@aave/core-v3": "^1.17.2",
+    "@openzeppelin/contracts": "^4.9.3",
+    "axios": "^1.6.2",
     "dotenv": "^16.3.1",
     "ethers": "^6.9.0",
-    "node-fetch": "^2.7.0"
+    "node-telegram-bot-api": "^0.64.0",
+    "winston": "^3.11.0"
   },
-  "type": "commonjs",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.0",
+    "@typechain/ethers-v6": "^0.5.0",
+    "@typechain/hardhat": "^9.0.0",
+    "@types/chai": "^4.2.0",
+    "@types/mocha": ">=9.1.0",
+    "@types/node": "^20.10.0",
+    "@types/node-telegram-bot-api": "^0.64.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "chai": "^4.2.0",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.0.0",
+    "hardhat": "^2.19.2",
+    "hardhat-gas-reporter": "^1.0.8",
+    "prettier": "^3.1.0",
+    "prettier-plugin-solidity": "^1.2.0",
+    "solidity-coverage": "^0.8.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typechain": "^8.3.0",
+    "typescript": "^5.3.3"
+  },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mae-kelly/ayo.git"
+    "url": "https://github.com/yourusername/l2-flash-arbitrage-bot.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/mae-kelly/ayo/issues"
-  },
-  "homepage": "https://github.com/mae-kelly/ayo#readme"
+  "keywords": [
+    "arbitrage",
+    "defi",
+    "mev",
+    "flash-loans",
+    "layer2",
+    "zksync",
+    "base",
+    "ethereum"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }

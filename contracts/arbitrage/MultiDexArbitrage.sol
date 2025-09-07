@@ -1,0 +1,166 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import "./FlashLoanArbitrage.sol";
+import "../interfaces/IDexRouter.sol";
+
+contract MultiDexArbitrage is FlashLoanArbitrage {
+    
+    struct DexRoute {
+        address router;
+        address[] path;
+        uint24[] fees; // For Uniswap V3
+        uint256 amountIn;
+        bytes swapData;
+    }
+    
+    struct CrossDexParams {
+        address flashToken;
+        uint256 flashAmount;
+        DexRoute[] routes;
+        uint256 minProfit;
+    }
+    
+    // Pre-computed DEX selectors for gas optimization
+    bytes4 private constant UNISWAP_V3_EXACT_INPUT = 0xc04b8d59;
+    bytes4 private constant UNISWAP_V2_SWAP = 0x38ed1739;
+    bytes4 private constant AERODROME_SWAP = 0x2cc4081e;
+    bytes4 private constant SYNCSWAP_SWAP = 0x2229d0b4;
+    
+    mapping(address => bool) public whitelistedRouters;
+    mapping(bytes4 => bool) public whitelistedSelectors;
+    
+    event RouterWhitelisted(address indexed router, bool status);
+    event ArbitrageRouteExecuted(address indexed router, uint256 amountIn, uint256 amountOut);
+    
+    constructor(address _addressProvider) FlashLoanArbitrage(_addressProvider) {
+        // Initialize whitelisted selectors
+        whitelistedSelectors[UNISWAP_V3_EXACT_INPUT] = true;
+        whitelistedSelectors[UNISWAP_V2_SWAP] = true;
+        whitelistedSelectors[AERODROME_SWAP] = true;
+        whitelistedSelectors[SYNCSWAP_SWAP] = true;
+    }
+    
+    /**
+     * @dev Whitelist a DEX router for trading
+     * @param router The router address
+     * @param status Whitelist status
+     */
+    function setRouterWhitelist(address router, bool status) external onlyOwner {
+        whitelistedRouters[router] = status;
+        emit RouterWhitelisted(router, status);
+    }
+    
+    /**
+     * @dev Execute multi-DEX arbitrage with flash loan
+     * @param params Encoded CrossDexParams
+     */
+    function executeMultiDexArbitrage(bytes calldata params) external onlyOwner {
+        CrossDexParams memory crossParams = abi.decode(params, (CrossDexParams));
+        
+        // Initiate flash loan
+        POOL.flashLoanSimple(
+            address(this),
+            crossParams.flashToken,
+            crossParams.flashAmount,
+            params,
+            0
+        );
+    }
+    
+    /**
+     * @dev Internal function to execute a swap on a specific DEX
+     * @param route The DEX route parameters
+     * @return amountOut The amount received from the swap
+     */
+    function _executeDexSwap(DexRoute memory route) internal returns (uint256 amountOut) {
+        require(whitelistedRouters[route.router], "Router not whitelisted");
+        
+        // Get the input token
+        address tokenIn = route.path[0];
+        
+        // Approve router
+        IERC20(tokenIn).safeApprove(route.router, route.amountIn);
+        
+        // Get balance before swap
+        address tokenOut = route.path[route.path.length - 1];
+        uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
+        
+        // Execute swap based on router type
+        bytes4 selector = bytes4(route.swapData);
+        require(whitelistedSelectors[selector], "Invalid selector");
+        
+        (bool success,) = route.router.call(route.swapData);
+        require(success, "Swap execution failed");
+        
+        // Calculate output amount
+        amountOut = IERC20(tokenOut).balanceOf(address(this)) - balanceBefore;
+        
+        emit ArbitrageRouteExecuted(route.router, route.amountIn, amountOut);
+        
+        return amountOut;
+    }
+    
+    /**
+     * @dev Optimized triangular arbitrage for stablecoins
+     * @param token0 First token in the triangle
+     * @param token1 Second token in the triangle
+     * @param token2 Third token in the triangle
+     * @param amount Initial amount
+     * @param routers Array of routers for each leg
+     */
+    function executeTriangularArbitrage(
+        address token0,
+        address token1,
+        address token2,
+        uint256 amount,
+        address[3] calldata routers,
+        bytes[3] calldata swapData
+    ) external onlyOwner {
+        // Record initial balance
+        uint256 initialBalance = IERC20(token0).balanceOf(address(this));
+        
+        // Leg 1: token0 -> token1
+        IERC20(token0).safeApprove(routers[0], amount);
+        (bool success1,) = routers[0].call(swapData[0]);
+        require(success1, "Leg 1 failed");
+        
+        uint256 token1Balance = IERC20(token1).balanceOf(address(this));
+        
+        // Leg 2: token1 -> token2
+        IERC20(token1).safeApprove(routers[1], token1Balance);
+        (bool success2,) = routers[1].call(swapData[1]);
+        require(success2, "Leg 2 failed");
+        
+        uint256 token2Balance = IERC20(token2).balanceOf(address(this));
+        
+        // Leg 3: token2 -> token0
+        IERC20(token2).safeApprove(routers[2], token2Balance);
+        (bool success3,) = routers[2].call(swapData[2]);
+        require(success3, "Leg 3 failed");
+        
+        // Verify profit
+        uint256 finalBalance = IERC20(token0).balanceOf(address(this));
+        require(finalBalance > initialBalance, "No profit");
+        
+        emit ArbitrageExecuted(token0, finalBalance - initialBalance, 0);
+    }
+    
+    /**
+     * @dev Gas-optimized batch swap execution
+     * @param swaps Array of swap data to execute
+     */
+    function batchExecuteSwaps(bytes[] calldata swaps) external onlyOwner {
+        uint256 length = swaps.length;
+        for (uint256 i; i < length;) {
+            (address target, bytes memory data) = abi.decode(swaps[i], (address, bytes));
+            
+            require(whitelistedRouters[target], "Router not whitelisted");
+            
+            (bool success,) = target.call(data);
+            require(success, "Batch swap failed");
+            
+            unchecked { ++i; }
+        }
+    }
+}

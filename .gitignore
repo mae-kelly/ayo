@@ -1,0 +1,105 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production
+dist/
+build/
+
+# Hardhat files
+cache/
+artifacts/
+typechain-types/
+coverage/
+coverage.json
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Private keys - NEVER commit these!
+*.pem
+*.key
+*private*
+*secret*
+
+# Deployment files with sensitive data
+deployments/*
+!deployments/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Testing
+test-results/
+.nyc_output
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Operating System Files
+Thumbs.db
+*.DS_Store
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Monitoring
+grafana-storage/
+prometheus-storage/
+redis-data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Gas reports
+gas-report.txt
+gasReporterOutput.json
+
+# Documentation
+docs/_build/
+
+# Package manager lock files (choose one)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Custom
+.notes
+TODO.md
+NOTES.md
+*.bak
+*.backup
+
+# Security audit reports
+audit/
+
+# Slither
+slither.db.json
+
+# Mythril
+mythril/
