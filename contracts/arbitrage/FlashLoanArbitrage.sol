@@ -1,12 +1,35 @@
+// contracts/arbitrage/FlashLoanArbitrage.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {IFlashLoanSimpleReceiver} from "@aave/core-v3/contracts/flashloan/interfaces/IFlashLoanSimpleReceiver.sol";
-import {IPoolAddressesProvider} from "@aave/core-v3/contracts/interfaces/IPoolAddressesProvider.sol";
-import {IPool} from "@aave/core-v3/contracts/interfaces/IPool.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+// Simplified Aave interfaces
+interface IPoolAddressesProvider {
+    function getPool() external view returns (address);
+}
+
+interface IPool {
+    function flashLoanSimple(
+        address receiverAddress,
+        address asset,
+        uint256 amount,
+        bytes calldata params,
+        uint16 referralCode
+    ) external;
+}
+
+interface IFlashLoanSimpleReceiver {
+    function executeOperation(
+        address asset,
+        uint256 amount,
+        uint256 premium,
+        address initiator,
+        bytes calldata params
+    ) external returns (bool);
+}
 
 contract FlashLoanArbitrage is IFlashLoanSimpleReceiver, Ownable {
     using SafeERC20 for IERC20;
@@ -48,9 +71,6 @@ contract FlashLoanArbitrage is IFlashLoanSimpleReceiver, Ownable {
     
     /**
      * @dev Initiates a flash loan and executes arbitrage
-     * @param asset The asset to flash loan
-     * @param amount The amount to flash loan
-     * @param params Encoded arbitrage parameters
      */
     function executeArbitrage(
         address asset,
@@ -68,11 +88,6 @@ contract FlashLoanArbitrage is IFlashLoanSimpleReceiver, Ownable {
     
     /**
      * @dev Executes the arbitrage logic after receiving flash loan
-     * @param asset The flash loaned asset
-     * @param amount The amount flash loaned
-     * @param premium The fee for the flash loan
-     * @param params Encoded arbitrage parameters
-     * @return Returns true if successful
      */
     function executeOperation(
         address asset,
@@ -133,7 +148,6 @@ contract FlashLoanArbitrage is IFlashLoanSimpleReceiver, Ownable {
     
     /**
      * @dev Emergency function to withdraw stuck tokens
-     * @param token The token to withdraw
      */
     function emergencyWithdraw(address token) external onlyOwner {
         uint256 balance = IERC20(token).balanceOf(address(this));

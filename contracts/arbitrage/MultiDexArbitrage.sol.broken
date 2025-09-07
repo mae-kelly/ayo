@@ -1,3 +1,4 @@
+// contracts/arbitrage/MultiDexArbitrage.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
@@ -108,6 +109,7 @@ contract MultiDexArbitrage is FlashLoanArbitrage {
      * @param token2 Third token in the triangle
      * @param amount Initial amount
      * @param routers Array of routers for each leg
+     * @param swapData Array of swap data for each leg
      */
     function executeTriangularArbitrage(
         address token0,
