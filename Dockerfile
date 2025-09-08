@@ -1,63 +1,60 @@
-# Multi-stage build for optimized production image
-FROM node:18-alpine AS builder
-
-# Install build dependencies
-RUN apk add --no-cache python3 make g++ git
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
+# Multi-stage build for optimized Rust binary
+FROM rust:1.75 as builder
 
 # Install dependencies
-RUN npm ci --only=production && \
-    npm cache clean --force
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    clang \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy source code
-COPY . .
-
-# Build TypeScript
-RUN npm run build
-
-# Production stage
-FROM node:18-alpine
-
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-# Set working directory
+# Create app directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy manifests
+COPY Cargo.toml Cargo.lock ./
 
-# Install production dependencies only
-RUN npm ci --only=production && \
-    npm cache clean --force
+# Build dependencies (cached layer)
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
 
-# Copy built application
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/contracts ./contracts
-COPY --from=builder /app/artifacts ./artifacts
-COPY --from=builder /app/bot/config ./bot/config
+# Copy source code
+COPY src ./src
+COPY abi ./abi
 
-# Create logs directory
-RUN mkdir -p logs && chown -R nodejs:nodejs logs
+# Build application
+RUN touch src/main.rs && \
+    cargo build --release
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 liquidator && \
+    mkdir -p /app/logs /app/data && \
+    chown -R liquidator:liquidator /app
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/liquidation-bot /app/
+COPY --chown=liquidator:liquidator abi ./abi
 
 # Switch to non-root user
-USER nodejs
+USER liquidator
 
-# Expose metrics port (optional)
-EXPOSE 9090
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["/app/liquidation-bot", "--health-check"]
 
-# Use dumb-init to handle signals properly
-ENTRYPOINT ["dumb-init", "--"]
-
-# Start the bot
-CMD ["node", "dist/bot/src/index.js"]
+# Run the bot
+ENTRYPOINT ["/app/liquidation-bot"]

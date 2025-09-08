@@ -1,131 +1,122 @@
-version: '3.8'
+version: '3.9'
 
 services:
-  # Main arbitrage bot
-  bot:
+  # Main liquidation bot
+  liquidation-bot:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: l2-arbitrage-bot
+    container_name: liquidation-bot
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      - PRIMARY_RPC=${PRIMARY_RPC}
+      - BACKUP_RPC=${BACKUP_RPC}
+      - WS_ENDPOINT=${WS_ENDPOINT}
+      - EXECUTOR_ADDRESS=${EXECUTOR_ADDRESS}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - BLOXROUTE_AUTH=${BLOXROUTE_AUTH}
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://liquidator:${DB_PASSWORD}@postgres:5432/liquidations
+      - RUST_LOG=info
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - liquidation-network
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
-    networks:
-      - arbitrage-net
-    depends_on:
-      - redis
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4G
+          cpus: '8'
+          memory: 32G
         reservations:
-          cpus: '1'
-          memory: 2G
-    healthcheck:
-      test: ["CMD", "node", "-e", "process.exit(0)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+          cpus: '4'
+          memory: 16G
 
-  # Redis for caching and rate limiting
+  # Redis for caching
   redis:
     image: redis:7-alpine
-    container_name: arbitrage-redis
+    container_name: liquidation-redis
     restart: unless-stopped
+    command: redis-server --maxmemory 4gb --maxmemory-policy allkeys-lru --appendonly yes
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     networks:
-      - arbitrage-net
-    command: redis-server --appendonly yes
+      - liquidation-network
 
-  # Grafana for monitoring dashboard
-  grafana:
-    image: grafana/grafana:latest
-    container_name: arbitrage-grafana
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=redis-datasource
-    volumes:
-      - grafana-storage:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
-    networks:
-      - arbitrage-net
-    depends_on:
-      - prometheus
-
-  # Prometheus for metrics collection
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: arbitrage-prometheus
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-storage:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--web.enable-lifecycle'
-    networks:
-      - arbitrage-net
-
-  # Node Exporter for system metrics
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: arbitrage-node-exporter
-    restart: unless-stopped
-    ports:
-      - "9100:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.rootfs=/rootfs'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    networks:
-      - arbitrage-net
-
-  # PostgreSQL for trade history (optional)
+  # PostgreSQL for historical data
   postgres:
-    image: postgres:15-alpine
-    container_name: arbitrage-postgres
+    image: postgres:16-alpine
+    container_name: liquidation-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: arbitrage_bot
-      POSTGRES_USER: botuser
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-changeme}
+      - POSTGRES_USER=liquidator
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=liquidations
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - arbitrage-net
-    profiles:
-      - with-database
+      - liquidation-network
 
-  # Nginx reverse proxy (optional)
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: liquidation-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - liquidation-network
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: liquidation-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_INSTALL_PLUGINS=redis-datasource
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - liquidation-network
+
+  # Alert manager
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: liquidation-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    networks:
+      - liquidation-network
+
+  # Nginx reverse proxy
   nginx:
     image: nginx:alpine
-    container_name: arbitrage-nginx
+    container_name: liquidation-nginx
     restart: unless-stopped
     ports:
       - "80:80"
@@ -133,27 +124,44 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./nginx/ssl:/etc/nginx/ssl
-    networks:
-      - arbitrage-net
     depends_on:
       - grafana
-      - prometheus
-    profiles:
-      - with-proxy
+    networks:
+      - liquidation-network
+
+  # Optional: Local Ethereum node
+  # geth:
+  #   image: ethereum/client-go:latest
+  #   container_name: liquidation-geth
+  #   restart: unless-stopped
+  #   command: 
+  #     - --http
+  #     - --http.addr=0.0.0.0
+  #     - --http.port=8545
+  #     - --http.api=eth,net,web3,debug,trace
+  #     - --ws
+  #     - --ws.addr=0.0.0.0
+  #     - --ws.port=8546
+  #     - --ws.api=eth,net,web3,debug,trace
+  #     - --syncmode=snap
+  #     - --maxpeers=100
+  #   ports:
+  #     - "8545:8545"
+  #     - "8546:8546"
+  #     - "30303:30303"
+  #   volumes:
+  #     - geth-data:/root/.ethereum
+  #   networks:
+  #     - liquidation-network
 
 networks:
-  arbitrage-net:
+  liquidation-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
 volumes:
-  grafana-storage:
-    driver: local
-  prometheus-storage:
-    driver: local
   redis-data:
-    driver: local
   postgres-data:
-    driver: local
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:
+  geth-data:
